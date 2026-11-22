@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>麻雀成績管理システム (雀鬼風)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body { background-color: #12181b; color: #e2e8f0; font-family: sans-serif; }
+        .card-bg { background-color: #1a2328; border: 1px solid #2d3748; }
+        .input-bg { background-color: #0f1416; border: 1px solid #2d3748; }
+        .tab-active { border-bottom: 2px solid #38bdf8; color: #38bdf8; font-weight: bold; }
+        .tab-inactive { color: #94a3b8; }
+        .tab-inactive:hover { color: #e2e8f0; }
+    </style>
+</head>
+<body class="p-3 sm:p-6 min-h-screen">
+    <div class="max-w-6xl mx-auto space-y-5">
+
+        <h1 class="text-xl sm:text-3xl font-bold text-center text-cyan-400 tracking-wider">
+            麻雀成績管理システム (雀鬼風)
+        </h1>
+
+        <!-- モード切替バー -->
+        <div class="card-bg p-3 rounded-lg flex justify-between items-center border border-cyan-900/50">
+            <div class="flex items-center gap-3">
+                <span id="mode-text" class="text-xs sm:text-sm font-bold text-slate-300">モード: 閲覧専用</span>
+                <span id="sync-status" class="text-[11px] text-emerald-400">● 同期準備完了</span>
+            </div>
+            <button id="auth-toggle-btn" onclick="toggleMode()" class="bg-red-600 hover:bg-red-500 text-white font-bold text-xs sm:text-sm px-4 py-2 rounded transition shadow">
+                管理者モードに切替
+            </button>
+        </div>
+
+        <!-- タブ -->
+        <div class="border-b border-slate-700 flex space-x-5 text-sm overflow-x-auto pb-1">
+            <button onclick="switchTab('daily')" id="tab-btn-daily" class="tab-btn tab-active pb-2 whitespace-nowrap">集計表 (日別)</button>
+            <button onclick="switchTab('stats')" id="tab-btn-stats" class="tab-btn tab-inactive pb-2 whitespace-nowrap">戦績一覧</button>
+            <button onclick="switchTab('history')" id="tab-btn-history" class="tab-btn tab-inactive pb-2 whitespace-nowrap">対局履歴</button>
+            <button onclick="switchTab('yakuman')" id="tab-btn-yakuman" class="tab-btn tab-inactive pb-2 whitespace-nowrap">役満記録</button>
+            <button onclick="switchTab('members')" id="tab-btn-members" class="tab-btn tab-inactive pb-2 whitespace-nowrap">メンバー管理 (100人)</button>
+        </div>
+
+        <!-- タブ1: 集計表 (日別) -->
+        <div id="tab-daily" class="tab-content space-y-4">
+            <div class="card-bg p-4 sm:p-6 rounded-xl space-y-4">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                    <div class="flex items-center gap-2.5">
+                        <h2 class="text-lg font-bold text-cyan-400">日別対局集計表</h2>
+                        <span id="day-finalized-badge" class="hidden bg-emerald-900/70 border border-emerald-500 text-emerald-300 text-xs px-2.5 py-0.5 rounded-full font-bold">✓ 本日集計確定済み</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <label class="text-xs text-slate-400">対戦日:</label>
+                        <input type="date" id="match-date" onchange="changeMatchDate()" class="input-bg px-3 py-1.5 rounded text-white text-sm">
+                    </div>
+                </div>
+
+                <!-- 管理者用：その日の参加メンバー列を追加するプルダウン -->
+                <div id="add-col-bar" class="hidden p-3 bg-slate-900/70 rounded-lg border border-slate-700 flex flex-wrap items-center gap-2">
+                    <span class="text-xs text-cyan-300 font-bold">参加メンバーを横に増やす:</span>
+                    <select id="add-col-select" class="input-bg px-2.5 py-1.5 rounded text-xs text-white"></select>
+                    <button onclick="addColumnMember()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded text-xs">＋ 列を追加</button>
+                    <span class="text-[11px] text-slate-400 ml-auto">※各列の名前をプルダウンで変更できます</span>
+                </div>
+
+                <!-- スコア集計テーブル -->
+                <div class="overflow-x-auto rounded border border-slate-700">
+                    <table class="w-full text-center text-sm border-collapse" id="daily-table">
+                        <thead>
+                            <tr class="bg-slate-800 border-b border-slate-700 text-slate-300" id="daily-thead-tr"></tr>
+                        </thead>
+                        <tbody id="daily-games-tbody" class="divide-y divide-slate-800"></tbody>
+                        <tfoot>
+                            <tr class="bg-amber-950/40 font-bold border-t border-slate-700 text-amber-400" id="daily-tfoot-tr"></tr>
+                        </tfoot>
+                    </table>
+                </div>
+
+                <div class="text-xs text-slate-400 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                    <span>※25,000点持ち・30,000点返し / ウマ：1位+20, 2位+10, 3位-10, 4位-20（オカ込み・完全ゼロサム・四捨五入）</span>
+                    <div class="flex flex-wrap gap-2">
+                        <button id="add-game-btn" onclick="addNewGameRow()" class="hidden bg-cyan-600 hover:bg-cyan-500 text-white font-bold px-4 py-2 rounded text-xs shadow">
+                            ＋ 新しい回戦を追加
+                        </button>
+                        <button id="finalize-day-btn" onclick="toggleFinalizeDay()" class="hidden bg-amber-600 hover:bg-amber-500 text-white font-bold px-4 py-2 rounded text-xs shadow">
+                            本日の集計を終了（確定）
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- タブ2: 戦績一覧 -->
+        <div id="tab-stats" class="tab-content hidden space-y-4">
+            <div class="card-bg p-4 sm:p-6 rounded-xl space-y-4">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                    <h2 class="text-lg font-bold text-cyan-400">戦績一覧（個人成績ランキング）</h2>
+                    <div class="flex items-center gap-2">
+                        <label class="text-xs text-slate-400">集計期間:</label>
+                        <select id="stats-period-select" onchange="renderStats()" class="input-bg px-3 py-1.5 rounded text-white text-sm">
+                            <option value="all">全期間（通算）</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="overflow-x-auto rounded border border-slate-700">
+                    <table class="w-full text-center text-sm border-collapse">
+                        <thead>
+                            <tr class="bg-slate-800 border-b border-slate-700 text-slate-300">
+                                <th class="p-2 border-r border-slate-700">順位</th>
+                                <th class="p-2 border-r border-slate-700">名前</th>
+                                <th class="p-2 border-r border-slate-700">対局数</th>
+                                <th class="p-2 border-r border-slate-700">通算ポイント</th>
+                                <th class="p-2 border-r border-slate-700">平均順位</th>
+                                <th class="p-2 border-r border-slate-700">MAX持ち点</th>
+                                <th class="p-2">役満回数</th>
+                            </tr>
+                        </thead>
+                        <tbody id="stats-tbody" class="divide-y divide-slate-800 text-slate-300"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- タブ3: 対局履歴 -->
+        <div id="tab-history" class="tab-content hidden space-y-4">
+            <div class="card-bg p-4 sm:p-6 rounded-xl space-y-4">
+                <h2 class="text-lg font-bold text-cyan-400">対局履歴（日別一覧・日時修正）</h2>
+                <div id="history-container" class="space-y-4"></div>
+            </div>
+        </div>
+
+        <!-- タブ4: 役満記録 -->
+        <div id="tab-yakuman" class="tab-content hidden space-y-4">
+            <div class="card-bg p-4 sm:p-6 rounded-xl space-y-4">
+                <h2 class="text-lg font-bold text-cyan-400">役満記録欄</h2>
+                <div id="admin-yakuman-form" class="hidden p-4 bg-slate-900/60 rounded-lg border border-amber-900/50 space-y-3">
+                    <div class="text-xs font-bold text-amber-400">🀄 新しい役満を記録する</div>
+                    <div class="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                        <input type="date" id="yk-date" class="input-bg p-2 rounded text-sm text-white">
+                        <select id="yk-member" class="input-bg p-2 rounded text-sm text-white"></select>
+                        <input type="text" id="yk-name" placeholder="役満名 (例: 国士無双, 四暗刻)" class="input-bg p-2 rounded text-sm text-white">
+                        <button onclick="addYakumanManual()" class="bg-amber-600 hover:bg-amber-500 font-bold py-2 px-4 rounded text-sm text-white">記録を追加</button>
+                    </div>
+                </div>
+                <div class="overflow-x-auto rounded border border-slate-700">
+                    <table class="w-full text-center text-sm border-collapse">
+                        <thead>
+                            <tr class="bg-slate-800 border-b border-slate-700 text-slate-300">
+                                <th class="p-2 border-r border-slate-700">達成日</th>
+                                <th class="p-2 border-r border-slate-700">メンバー</th>
+                                <th class="p-2 border-r border-slate-700">役満名</th>
+                                <th class="p-2 w-20">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="yakuman-tbody" class="divide-y divide-slate-800 text-slate-300"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- タブ5: メンバー管理 -->
+        <div id="tab-members" class="tab-content hidden space-y-4">
+            <div class="card-bg p-4 sm:p-6 rounded-xl space-y-4">
+                <div class="flex justify-between items-center">
+                    <h2 class="text-lg font-bold text-cyan-400">メンバー管理（最大100人）</h2>
+                    <span id="member-count" class="text-xs text-slate-400">0 / 100人</span>
+                </div>
+                <div id="admin-member-input" class="hidden flex gap-2">
+                    <input type="text" id="new-member-name" placeholder="新しいメンバー名を入力" class="input-bg px-3 py-2 rounded text-white text-sm flex-1">
+                    <button onclick="addMember()" class="bg-emerald-600 hover:bg-emerald-500 px-5 py-2 rounded font-bold text-sm text-white">追加</button>
+                </div>
+                <div id="member-tags" class="flex flex-wrap gap-2 pt-2"></div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://wfuijawdjndqevwmtjoa.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_EFaXmwtBYHITi4W741XdQw_v5qQds0h';
+        const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        const LOCAL_STORAGE_KEY = 'mahjong_janki_backup_v1';
+
+        let isAdmin = false;
+        let members = [];
+        let matches = {};
+        let yakumans = [];
+
+        let matchDate = new Date().toISOString().split('T')[0];
+
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('match-date').value = matchDate;
+            document.getElementById('yk-date').value = matchDate;
+            loadLocalBackup();
+            renderAll();
+            loadFromCloud();
+            initRealtime();
+        });
+
+        function saveLocalBackup() {
+            try {
+                const data = { members, matches, yakumans, savedAt: new Date().toISOString() };
+                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
+            } catch (e) {
+                console.error("ローカル保存エラー:", e);
+            }
+        }
+
+        function loadLocalBackup() {
+            try {
+                const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    if (Array.isArray(parsed.members)) members = parsed.members;
+                    if (parsed.matches && typeof parsed.matches === 'object') matches = parsed.matches;
+                    if (Array.isArray(parsed.yakumans)) yakumans = parsed.yakumans;
+                }
+            } catch (e) {
+                console.error("ローカル読込エラー:", e);
+            }
+        }
+
+        function ensureDayData(date) {
+            if (!matches[date]) {
+                matches[date] = { columns: [], games: [], finalized: false };
+            }
+            if (!Array.isArray(matches[date].columns)) matches[date].columns = [];
+            if (!Array.isArray(matches[date].games)) matches[date].games = [];
+            if (typeof matches[date].finalized !== 'boolean') matches[date].finalized = false;
+            return matches[date];
+        }
+
+        function setAdminControlsVisible(visible) {
+            ['admin-member-input', 'admin-yakuman-form', 'add-game-btn', 'add-col-bar', 'finalize-day-btn'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    if (visible) el.classList.remove('hidden');
+                    else el.classList.add('hidden');
+                }
+            });
+        }
+
+        function toggleMode() {
+            if (!isAdmin) {
+                const pass = prompt("管理者パスワードを入力してください (1234)");
+                if (pass === "1234") {
+                    isAdmin = true;
+                    document.getElementById('mode-text').textContent = "モード: 管理者 (編集・入力可能)";
+                    document.getElementById('mode-text').classList.replace('text-slate-300', 'text-amber-400');
+                    document.getElementById('auth-toggle-btn').textContent = "閲覧専用に戻す";
+                    document.getElementById('auth-toggle-btn').classList.replace('bg-red-600', 'bg-cyan-700');
+                    setAdminControlsVisible(true);
+                } else if (pass !== null) {
+                    alert("パスワードが違います");
+                }
+            } else {
+                isAdmin = false;
+                Object.keys(matches).forEach(d => {
+                    if (matches[d] && Array.isArray(matches[d].games)) {
+                        matches[d].games = matches[d].games.filter(g => !(g.isEditing && !g.savedOnce));
+                        matches[d].games.forEach(g => g.isEditing = false);
+                    }
+                });
+                document.getElementById('mode-text').textContent = "モード: 閲覧専用";
+                document.getElementById('mode-text').classList.replace('text-amber-400', 'text-slate-300');
+                document.getElementById('auth-toggle-btn').textContent = "管理者モードに切替";
+                document.getElementById('auth-toggle-btn').classList.replace('bg-cyan-700', 'bg-red-600');
+                setAdminControlsVisible(false);
+            }
+            renderAll();
+        }
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('tab-active');
+                btn.classList.add('tab-inactive');
+            });
+            document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+            document.getElementById(`tab-btn-${tabId}`).classList.add('tab-active');
+            document.getElementById(`tab-btn-${tabId}`).classList.remove('tab-inactive');
+            renderAll();
+        }
+
+        function changeMatchDate() {
+            matchDate = document.getElementById('match-date').value;
+            renderAll();
+        }
+
+        function toggleFinalizeDay() {
+            if (!isAdmin) return;
+            const day = ensureDayData(matchDate);
+            if (!day.finalized) {
+                if (day.games.length === 0) {
+                    alert("まだ対局記録がありません。");
+                    return;
+                }
+                if (confirm(`${matchDate} の集計を終了（確定）しますか？\n※確定後も必要に応じて解除・修正できます。`)) {
+                    day.finalized = true;
+                    saveToCloud();
+                    renderAll();
+                }
+            } else {
+                if (confirm(`${matchDate} の集計確定を解除して、編集できるようにしますか？`)) {
+                    day.finalized = false;
+                    saveToCloud();
+                    renderAll();
+                }
+            }
+        }
+
+        function addMember() {
+            const input = document.getElementById('new-member-name');
+            const name = input.value.trim();
+            if (!name) return;
+            if (members.length >= 100) {
+                alert("メンバーは最大100人まで登録できます。");
+                return;
+            }
+            if (members.includes(name)) {
+                alert("すでに同じ名前のメンバーが登録されています。");
+                return;
+            }
+            members.push(name);
+            input.value = '';
+            saveToCloud();
+            renderAll();
+        }
+
+        function removeMember(name) {
+            if (!isAdmin) return;
+            if (confirm(`「${name}」をメンバーリストから削除しますか？`)) {
+                members = members.filter(m => m !== name);
+                saveToCloud();
+                renderAll();
+            }
+        }
+
+        function addColumnMember() {
+            if (!isAdmin) return;
+            const day = ensureDayData(matchDate);
+            if (day.finalized) {
+                alert("本日の集計は確定済みです。編集するには先に確定を解除してください。");
+                return;
+            }
+            if (members.length === 0) {
+                alert("先に「メンバー管理」タブからメンバーを追加してください。");
+                return;
+            }
+            const sel = document.getElementById('add-col-select');
+            const chosen = sel ? sel.value : "";
+            if (!chosen) {
+                alert("追加するメンバーを選択してください。");
+                return;
+            }
+            if (day.columns.includes(chosen)) {
+                alert("すでにその日の表に並んでいます。");
+                return;
+            }
+            day.columns.push(chosen);
+            saveToCloud();
+            renderAll();
+        }
+
+        function changeColumnMember(colIdx, newName) {
+            if (!isAdmin) return;
+            const day = ensureDayData(matchDate);
+            if (day.finalized) {
+                alert("本日の集計は確定済みです。");
+                renderDailyTable();
+                return;
+            }
+            const oldName = day.columns[colIdx];
+            if (oldName === newName) return;
+            if (day.columns.includes(newName)) {
+                alert("同じメンバーがすでに別の列にいます。");
+                renderDailyTable();
+                return;
+            }
+            day.columns[colIdx] = newName;
+            day.games.forEach(g => {
+                if (g.entries && oldName in g.entries) {
+                    g.entries[newName] = g.entries[oldName];
+                    delete g.entries[oldName];
+                }
+                if (g.points && oldName in g.points) {
+                    g.points[newName] = g.points[oldName];
+                    delete g.points[oldName];
+                }
+            });
+            saveToCloud();
+            renderAll();
+        }
+
+        function calculateFourPlayerPoints(playerScores) {
+            const indexed = playerScores.map((item, idx) => ({ name: item.name, score: item.score, idx }));
+            indexed.sort((a, b) => b.score - a.score);
+
+            const umas = [20, 10, -10, -20];
+            const ptsMap = {};
+            let sumOthers = 0;
+
+            for (let rank = 1; rank < indexed.length; rank++) {
+                const it = indexed[rank];
+                const base = (it.score - 30000) / 1000;
+                const uma = umas[rank] !== undefined ? umas[rank] : -10;
+                const pt = Math.round(base + uma);
+                ptsMap[it.name] = pt;
+                sumOthers += pt;
+            }
+            ptsMap[indexed[0].name] = -sumOthers;
+            return ptsMap;
+        }
+
+        function addNewGameRow() {
+            if (!isAdmin) return;
+            const day = ensureDayData(matchDate);
+            if (day.finalized) {
+                alert("本日の集計は確定済みです。新しい回戦を追加するには先に確定を解除してください。");
+                return;
+            }
+            if (members.length < 4) {
+                alert("対局するにはメンバーが4人以上必要です。「メンバー管理」タブから追加してください。");
+                switchTab('members');
+                return;
+            }
+            if (day.columns.length < 4) {
+                members.slice(0, 4).forEach(m => {
+                    if (!day.columns.includes(m)) day.columns.push(m);
+                });
+            }
+            day.games.push({
+                entries: {},
+                points: {},
+                isEditing: true,
+                savedOnce: false
+            });
+            renderAll();
+        }
+
+        function startEditGameRow(gIdx) {
+            if (!isAdmin) return;
+            const day = ensureDayData(matchDate);
+            if (day.finalized) {
+                alert("本日の集計は確定済みです。修正するには先に確定を解除してください。");
+                return;
+            }
+            if (day.games[gIdx]) {
+                day.games[gIdx].isEditing = true;
+                renderAll();
+            }
+        }
+
+        function cancelGameRow(gIdx) {
+            const day = ensureDayData(matchDate);
+            const g = day.games[gIdx];
+            if (!g) return;
+            if (!g.savedOnce) {
+                day.games.splice(gIdx, 1);
+            } else {
+                g.isEditing = false;
+            }
+            renderAll();
+        }
+
+        function saveGameRow(gIdx) {
+            if (!isAdmin) return;
+            const day = ensureDayData(matchDate);
+            const g = day.games[gIdx];
+            if (!g) return;
+
+            const activeInputs = [];
+            day.columns.forEach((m, cIdx) => {
+                const inp = document.getElementById(`g${gIdx}-c${cIdx}-raw`);
+                if (inp && inp.value.trim() !== "") {
+                    const num = parseFloat(inp.value);
+                    if (!isNaN(num)) {
+                        activeInputs.push({ name: m, score: num });
+                    }
+                }
+            });
+
+            if (activeInputs.length !== 4) {
+                alert("この回戦に参加した4人分の持ち点を入力してください（不参加の列は空欄のままにしてください）。");
+                return;
+            }
+
+            const entries = {};
+            activeInputs.forEach(item => {
+                entries[item.name] = item.score;
+            });
+
+            const ptsMap = calculateFourPlayerPoints(activeInputs);
+
+            day.columns.forEach((m, cIdx) => {
+                const chk = document.getElementById(`g${gIdx}-c${cIdx}-yk`);
+                if (chk && chk.checked) {
+                    yakumans.push({ date: matchDate, member: m, name: "役満" });
+                }
+            });
+
+            g.entries = entries;
+            g.points = ptsMap;
+            g.isEditing = false;
+            g.savedOnce = true;
+
+            saveToCloud();
+            renderAll();
+        }
+
+        function deleteGameRecord(date, gameIdx) {
+            if (!isAdmin) return;
+            const day = matches[date];
+            if (day && day.finalized) {
+                alert("この日の集計は確定済みです。削除するには先に確定を解除してください。");
+                return;
+            }
+            if (confirm(`${date} の ${gameIdx + 1}回戦の記録を削除しますか？`)) {
+                if (day && day.games) {
+                    day.games.splice(gameIdx, 1);
+                    if (day.games.length === 0 && (!day.columns || day.columns.length === 0)) {
+                        delete matches[date];
+                    }
+                    saveToCloud();
+                    renderAll();
+                }
+            }
+        }
+
+        function moveDateRecord(oldDate) {
+            if (!isAdmin) return;
+            const newDate = prompt("変更後の日付を入力してください (例: 2026-11-15)", oldDate);
+            if (!newDate || newDate === oldDate) return;
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
+                alert("日付の形式が正しくありません (YYYY-MM-DD形式)");
+                return;
+            }
+            const target = ensureDayData(newDate);
+            const src = matches[oldDate];
+            if (src) {
+                (src.columns || []).forEach(c => {
+                    if (!target.columns.includes(c)) target.columns.push(c);
+                });
+                target.games.push(...(src.games || []));
+                delete matches[oldDate];
+            }
+            saveToCloud();
+            renderAll();
+        }
+
+        function addYakumanManual() {
+            const date = document.getElementById('yk-date').value;
+            const member = document.getElementById('yk-member').value;
+            const name = document.getElementById('yk-name').value.trim();
+            if (!date || !member || !name) {
+                alert("達成日・メンバー・役満名をすべて入力してください。");
+                return;
+            }
+            yakumans.push({ date, member, name });
+            document.getElementById('yk-name').value = '';
+            saveToCloud();
+            renderAll();
+        }
+
+        function deleteYakuman(idx) {
+            if (!isAdmin) return;
+            if (confirm("この役満記録を削除しますか？")) {
+                yakumans.splice(idx, 1);
+                saveToCloud();
+                renderAll();
+            }
+        }
+
+        function renderAll() {
+            renderAddColSelect();
+            renderDailyTable();
+            updateStatsPeriodOptions();
+            renderStats();
+            renderHistory();
+            renderYakumans();
+            renderMemberList();
+        }
+
+        function renderAddColSelect() {
+            const sel = document.getElementById('add-col-select');
+            if (!sel) return;
+            const day = matches[matchDate];
+            const used = (day && day.columns) ? day.columns : [];
+            const avail = members.filter(m => !used.includes(m));
+            if (avail.length === 0) {
+                sel.innerHTML = `<option value="">追加できるメンバーなし</option>`;
+            } else {
+                sel.innerHTML = avail.map(m => `<option value="${m}">${m}</option>`).join('');
+            }
+        }
+
+        function renderDailyTable() {
+            const theadTr = document.getElementById('daily-thead-tr');
+            const tbody = document.getElementById('daily-games-tbody');
+            const tfootTr = document.getElementById('daily-tfoot-tr');
+            const badge = document.getElementById('day-finalized-badge');
+            const finBtn = document.getElementById('finalize-day-btn');
+            if (!theadTr || !tbody || !tfootTr) return;
+
+            const day = matches[matchDate];
+            const isFinalized = !!(day && day.finalized);
+            const canEdit = isAdmin && !isFinalized;
+
+            if (badge) {
+                if (isFinalized) badge.classList.remove('hidden');
+                else badge.classList.add('hidden');
+            }
+            if (finBtn) {
+                finBtn.textContent = isFinalized ? "集計確定を解除（再編集）" : "本日の集計を終了（確定）";
+                if (isFinalized) {
+                    finBtn.classList.replace('bg-amber-600', 'bg-slate-600');
+                    finBtn.classList.replace('hover:bg-amber-500', 'hover:bg-slate-500');
+                } else {
+                    finBtn.classList.replace('bg-slate-600', 'bg-amber-600');
+                    finBtn.classList.replace('hover:bg-slate-500', 'hover:bg-amber-500');
+                }
+            }
+
+            const columns = (day && Array.isArray(day.columns)) ? day.columns : [];
+            const games = (day && Array.isArray(day.games)) ? day.games : [];
+
+            if (columns.length === 0) {
+                theadTr.innerHTML = `<th class="p-2 border-r border-slate-700 w-16">回戦</th><th class="p-4 text-slate-400">まだメンバーが追加されていません</th>`;
+                tbody.innerHTML = `<tr><td colspan="2" class="p-6 text-slate-500">管理者モードにして「＋ 新しい回戦を追加」または「＋ 列を追加」から始めてください</td></tr>`;
+                tfootTr.innerHTML = `<td class="p-2 border-r border-slate-700">合計pt</td><td>0</td>`;
+                return;
+            }
+
+            let headHtml = `<th class="p-2 border-r border-slate-700 w-16">回戦</th>`;
+            columns.forEach((colName, cIdx) => {
+                if (canEdit && members.length > 0) {
+                    const opts = members.map(m => `<option value="${m}" ${m === colName ? 'selected' : ''}>${m}</option>`).join('');
+                    headHtml += `<th class="p-1.5 border-r border-slate-700 min-w-[110px]">
+                        <select onchange="changeColumnMember(${cIdx}, this.value)" class="input-bg px-1.5 py-1 rounded text-cyan-400 font-bold text-xs w-full text-center cursor-pointer">${opts}</select>
+                    </th>`;
+                } else {
+                    headHtml += `<th class="p-2 border-r border-slate-700 text-cyan-400 font-bold min-w-[100px]">${colName}</th>`;
+                }
+            });
+            headHtml += `<th class="p-2 w-24">操作</th>`;
+            theadTr.innerHTML = headHtml;
+
+            tbody.innerHTML = '';
+            const dayTotals = {};
+            columns.forEach(c => dayTotals[c] = 0);
+
+            if (games.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="${columns.length + 2}" class="p-6 text-slate-500">この日の対局記録はまだありません</td></tr>`;
+            }
+
+            games.forEach((g, gIdx) => {
+                if (g.isEditing && canEdit) {
+                    let row = `<tr class="bg-slate-900/90 border-t-2 border-cyan-600">
+                        <td class="p-2 border-r border-slate-800 font-bold text-cyan-400">${gIdx + 1}回戦</td>`;
+                    columns.forEach((colName, cIdx) => {
+                        const existingRaw = (g.entries && colName in g.entries) ? g.entries[colName] : "";
+                        row += `<td class="p-2 border-r border-slate-800">
+                            <input type="number" id="g${gIdx}-c${cIdx}-raw" value="${existingRaw}" placeholder="持ち点" class="input-bg p-1.5 rounded text-center text-white text-xs w-full mb-1">
+                            <label class="text-[9px] text-amber-400 flex items-center justify-center gap-1 cursor-pointer">
+                                <input type="checkbox" id="g${gIdx}-c${cIdx}-yk"> 役満
+                            </label>
+                        </td>`;
+                    });
+                    row += `<td class="p-2 space-y-1">
+                        <button onclick="saveGameRow(${gIdx})" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white px-2 py-1 rounded text-xs font-bold">登録</button>
+                        <button onclick="cancelGameRow(${gIdx})" class="w-full bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded text-xs">取消</button>
+                    </td></tr>`;
+                    tbody.innerHTML += row;
+                } else {
+                    let row = `<tr class="border-b border-slate-800">
+                        <td class="p-2 border-r border-slate-800 font-bold">${gIdx + 1}回戦</td>`;
+                    columns.forEach(colName => {
+                        if (g.points && colName in g.points) {
+                            const pt = g.points[colName];
+                            const raw = g.entries ? g.entries[colName] : "";
+                            dayTotals[colName] = (dayTotals[colName] || 0) + pt;
+                            const color = pt >= 0 ? 'text-emerald-400' : 'text-red-400';
+                            row += `<td class="p-2 border-r border-slate-800 font-bold ${color}">${pt > 0 ? '+' + pt : pt}<span class="text-[10px] text-slate-400 font-normal block">(${raw})</span></td>`;
+                        } else {
+                            row += `<td class="p-2 border-r border-slate-800 text-slate-600">--</td>`;
+                        }
+                    });
+                    if (canEdit) {
+                        row += `<td class="p-2 flex flex-col gap-1">
+                            <button onclick="startEditGameRow(${gIdx})" class="bg-sky-700 hover:bg-sky-600 text-white px-2 py-1 rounded text-xs">修正</button>
+                            <button onclick="deleteGameRecord('${matchDate}', ${gIdx})" class="bg-red-700 hover:bg-red-600 text-white px-2 py-1 rounded text-xs">削除</button>
+                        </td>`;
+                    } else {
+                        row += `<td class="p-2 text-slate-600">${isFinalized ? '確定' : '--'}</td>`;
+                    }
+                    row += `</tr>`;
+                    tbody.innerHTML += row;
+                }
+            });
+
+            let footHtml = `<td class="p-2 border-r border-slate-700">合計pt</td>`;
+            columns.forEach(colName => {
+                const tot = dayTotals[colName] || 0;
+                const color = tot >= 0 ? 'text-emerald-400' : 'text-red-400';
+                footHtml += `<td class="p-2 border-r border-slate-700 font-bold ${color}">${tot > 0 ? '+' + tot : tot}</td>`;
+            });
+            footHtml += `<td></td>`;
+            tfootTr.innerHTML = footHtml;
+        }
+
+        function updateStatsPeriodOptions() {
+            const sel = document.getElementById('stats-period-select');
+            if (!sel) return;
+            const prevVal = sel.value || 'all';
+
+            const monthsSet = new Set();
+            const yearsSet = new Set();
+
+            Object.keys(matches).forEach(date => {
+                if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+                    const y = date.slice(0, 4);
+                    const ym = date.slice(0, 7);
+                    yearsSet.add(y);
+                    monthsSet.add(ym);
+                }
+            });
+            yakumans.forEach(yk => {
+                if (yk.date && /^\d{4}-\d{2}-\d{2}$/.test(yk.date)) {
+                    yearsSet.add(yk.date.slice(0, 4));
+                    monthsSet.add(yk.date.slice(0, 7));
+                }
+            });
+
+            const sortedMonths = Array.from(monthsSet).sort().reverse();
+            const sortedYears = Array.from(yearsSet).sort().reverse();
+
+            let html = `<option value="all">全期間（通算）</option>`;
+            if (sortedMonths.length > 0) {
+                html += `<optgroup label="月別ランキング">`;
+                sortedMonths.forEach(ym => {
+                    const [y, m] = ym.split('-');
+                    html += `<option value="month:${ym}">${y}年${Number(m)}月</option>`;
+                });
+                html += `</optgroup>`;
+            }
+            if (sortedYears.length > 0) {
+                html += `<optgroup label="年別ランキング">`;
+                sortedYears.forEach(y => {
+                    html += `<option value="year:${y}">${y}年</option>`;
+                });
+                html += `</optgroup>`;
+            }
+
+            sel.innerHTML = html;
+            if (Array.from(sel.options).some(o => o.value === prevVal)) {
+                sel.value = prevVal;
+            } else {
+                sel.value = 'all';
+            }
+        }
+
+        function matchesPeriod(dateStr, period) {
+            if (!period || period === 'all') return true;
+            if (!dateStr) return false;
+            if (period.startsWith('month:')) {
+                const ym = period.slice('month:'.length);
+                return dateStr.startsWith(ym);
+            }
+            if (period.startsWith('year:')) {
+                const y = period.slice('year:'.length);
+                return dateStr.startsWith(y + '-');
+            }
+            return true;
+        }
+
+        function renderStats() {
+            const tbody = document.getElementById('stats-tbody');
+            if (!tbody) return;
+
+            if (members.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" class="p-6 text-slate-500">メンバーが登録されていません</td></tr>`;
+                return;
+            }
+
+            const sel = document.getElementById('stats-period-select');
+            const period = sel ? sel.value : 'all';
+
+            const stats = {};
+            members.forEach(m => {
+                stats[m] = { games: 0, totalPts: 0, rankSum: 0, maxScore: null, yakuman: 0 };
+            });
+
+            yakumans.forEach(y => {
+                if (matchesPeriod(y.date, period) && stats[y.member]) {
+                    stats[y.member].yakuman += 1;
+                }
+            });
+
+            Object.keys(matches).forEach(date => {
+                if (!matchesPeriod(date, period)) return;
+                const d = matches[date];
+                if (d && Array.isArray(d.games)) {
+                    d.games.forEach(g => {
+                        if (!g.entries || !g.points) return;
+                        const participants = Object.keys(g.entries).map(name => ({
+                            name,
+                            raw: g.entries[name],
+                            pt: g.points[name] !== undefined ? g.points[name] : 0
+                        }));
+                        participants.sort((a, b) => b.raw - a.raw);
+                        participants.forEach((item, rank) => {
+                            if (stats[item.name]) {
+                                stats[item.name].games += 1;
+                                stats[item.name].totalPts += item.pt;
+                                stats[item.name].rankSum += (rank + 1);
+                                if (stats[item.name].maxScore === null || item.raw > stats[item.name].maxScore) {
+                                    stats[item.name].maxScore = item.raw;
+                                }
+                            }
+                        });
+                    });
+                }
+            });
+
+            const sorted = members.map(m => {
+                const s = stats[m];
+                const avgRank = s.games > 0 ? (s.rankSum / s.games).toFixed(2) : '-';
+                return { name: m, ...s, avgRank };
+            }).sort((a, b) => b.totalPts - a.totalPts);
+
+            tbody.innerHTML = sorted.map((s, idx) => `
+                <tr class="border-b border-slate-800 hover:bg-slate-800/40">
+                    <td class="p-2 border-r border-slate-800 text-slate-400">${idx + 1}</td>
+                    <td class="p-2 border-r border-slate-800 font-bold text-white">${s.name}</td>
+                    <td class="p-2 border-r border-slate-800">${s.games}</td>
+                    <td class="p-2 border-r border-slate-800 font-bold ${s.totalPts >= 0 ? 'text-emerald-400' : 'text-red-400'}">${s.totalPts > 0 ? '+' + s.totalPts : s.totalPts}</td>
+                    <td class="p-2 border-r border-slate-800">${s.avgRank}</td>
+                    <td class="p-2 border-r border-slate-800">${s.maxScore !== null ? s.maxScore : '-'}</td>
+                    <td class="p-2 font-bold text-amber-400">${s.yakuman}</td>
+                </tr>
+            `).join('');
+        }
+
+        function renderHistory() {
+            const container = document.getElementById('history-container');
+            if (!container) return;
+            const dates = Object.keys(matches).sort().reverse();
+            if (dates.length === 0) {
+                container.innerHTML = `<div class="text-slate-500 text-center py-6">対局履歴はまだありません</div>`;
+                return;
+            }
+            container.innerHTML = dates.map(date => {
+                const d = matches[date];
+                const validGames = (d && d.games) ? d.games.filter(g => g.entries && g.points) : [];
+                if (validGames.length === 0) return '';
+                const gamesHtml = validGames.map((g, idx) => {
+                    const pHtml = Object.keys(g.entries).map(p => {
+                        const pt = g.points[p] !== undefined ? g.points[p] : 0;
+                        const color = pt >= 0 ? 'text-emerald-400' : 'text-red-400';
+                        return `<div class="bg-slate-900 p-2 rounded border border-slate-800">
+                            <div class="text-xs text-slate-400">${p}</div>
+                            <div class="font-bold ${color}">${pt > 0 ? '+' + pt : pt} <span class="text-[10px] text-slate-500">(${g.entries[p]})</span></div>
+                        </div>`;
+                    }).join('');
+                    return `<div class="space-y-1">
+                        <div class="flex justify-between items-center text-xs text-slate-400">
+                            <span>${idx + 1}回戦</span>
+                            ${isAdmin ? `<button onclick="deleteGameRecord('${date}', ${idx})" class="text-red-400 hover:underline">削除</button>` : ''}
+                        </div>
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">${pHtml}</div>
+                    </div>`;
+                }).join('');
+
+                return `<div class="card-bg p-4 rounded-lg space-y-3 border border-slate-700">
+                    <div class="flex justify-between items-center border-b border-slate-700 pb-2">
+                        <span class="font-bold text-cyan-300 text-base">${date}（全${validGames.length}回戦）${d.finalized ? '<span class="ml-2 text-xs text-emerald-400">[確定済み]</span>' : ''}</span>
+                        ${isAdmin ? `<button onclick="moveDateRecord('${date}')" class="bg-slate-700 hover:bg-slate-600 text-white px-2.5 py-1 rounded text-xs">日時修正</button>` : ''}
+                    </div>
+                    <div class="space-y-3">${gamesHtml}</div>
+                </div>`;
+            }).join('') || `<div class="text-slate-500 text-center py-6">対局履歴はまだありません</div>`;
+        }
+
+        function renderYakumans() {
+            const tbody = document.getElementById('yakuman-tbody');
+            if (!tbody) return;
+
+            const ySel = document.getElementById('yk-member');
+            if (ySel) {
+                ySel.innerHTML = members.length > 0
+                    ? members.map(m => `<option value="${m}">${m}</option>`).join('')
+                    : `<option value="">メンバー未登録</option>`;
+            }
+
+            if (yakumans.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="4" class="p-6 text-slate-500">記録された役満はまだありません</td></tr>`;
+                return;
+            }
+            tbody.innerHTML = yakumans.map((y, idx) => `
+                <tr class="border-b border-slate-800">
+                    <td class="p-2 border-r border-slate-800 text-slate-400">${y.date}</td>
+                    <td class="p-2 border-r border-slate-800 text-cyan-300 font-bold">${y.member}</td>
+                    <td class="p-2 border-r border-slate-800 text-amber-400 font-bold">${y.name}</td>
+                    <td class="p-2">
+                        ${isAdmin ? `<button onclick="deleteYakuman(${idx})" class="bg-red-700 hover:bg-red-600 text-white px-2 py-1 rounded text-xs">削除</button>` : '--'}
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function renderMemberList() {
+            const container = document.getElementById('member-tags');
+            const countEl = document.getElementById('member-count');
+            if (!container) return;
+            if (countEl) countEl.textContent = `${members.length} / 100人`;
+
+            if (members.length === 0) {
+                container.innerHTML = `<div class="text-slate-500 text-sm">登録されているメンバーはいません</div>`;
+                return;
+            }
+            container.innerHTML = members.map(m => `
+                <span class="bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-full text-sm text-cyan-300 flex items-center gap-2">
+                    ${m}
+                    ${isAdmin ? `<button onclick="removeMember('${m}')" class="text-red-400 hover:text-red-300 font-bold text-xs">×</button>` : ''}
+                </span>
+            `).join('');
+        }
+
+        async function saveToCloud() {
+            saveLocalBackup();
+            const statusEl = document.getElementById('sync-status');
+            if (statusEl) { statusEl.textContent = "● 保存中..."; statusEl.className = "text-[11px] text-amber-400"; }
+
+            const payload = { id: 1, members, matches, yakumans, updated_at: new Date() };
+            try {
+                const { error } = await db.from('mahjong_data').upsert(payload);
+                if (error) throw error;
+                if (statusEl) { statusEl.textContent = "● 同期完了"; statusEl.className = "text-[11px] text-emerald-400"; }
+            } catch (e) {
+                console.error("保存エラー:", e);
+                if (statusEl) { statusEl.textContent = "● ローカル保存済み (クラウド同期エラー)"; statusEl.className = "text-[11px] text-amber-400"; }
+            }
+        }
+
+        async function loadFromCloud() {
+            const statusEl = document.getElementById('sync-status');
+            try {
+                const { data, error } = await db.from('mahjong_data').select('*').eq('id', 1).single();
+                if (error) throw error;
+                if (data) {
+                    members = Array.isArray(data.members) ? data.members : members;
+                    matches = data.matches || matches;
+                    yakumans = Array.isArray(data.yakumans) ? data.yakumans : yakumans;
+                    saveLocalBackup();
+                    if (statusEl) { statusEl.textContent = "● 同期完了"; statusEl.className = "text-[11px] text-emerald-400"; }
+                }
+            } catch (e) {
+                console.log("クラウド読込スキップ（ローカルデータを使用）:", e);
+                if (statusEl) { statusEl.textContent = "● ローカルデータ表示中 (クラウド未接続)"; statusEl.className = "text-[11px] text-amber-400"; }
+            }
+            renderAll();
+        }
+
+        function initRealtime() {
+            db.channel('mahjong_sync')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'mahjong_data' }, payload => {
+                    if (payload.new) {
+                        members = Array.isArray(payload.new.members) ? payload.new.members : [];
+                        matches = payload.new.matches || {};
+                        yakumans = Array.isArray(payload.new.yakumans) ? payload.new.yakumans : [];
+                        saveLocalBackup();
+                        renderAll();
+                    }
+                })
+                .subscribe();
+        }
+    </script>
+</body>
+</html>
