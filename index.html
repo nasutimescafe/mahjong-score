@@ -186,15 +186,16 @@
         let members = [];
         let matches = {};
         let yakumans = [];
+        let useJsonColumn = true;
 
         let matchDate = new Date().toISOString().split('T')[0];
 
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', async () => {
             document.getElementById('match-date').value = matchDate;
             document.getElementById('yk-date').value = matchDate;
             loadLocalBackup();
             renderAll();
-            loadFromCloud();
+            await loadFromCloud();
             initRealtime();
         });
 
@@ -927,37 +928,75 @@
             `).join('');
         }
 
+        function applyCloudRow(row) {
+            if (!row) return;
+            const src = (row.data && typeof row.data === 'object') ? row.data : row;
+            if (row.data && typeof row.data === 'object') {
+                useJsonColumn = true;
+            } else if ('members' in row || 'matches' in row) {
+                useJsonColumn = false;
+            }
+            if (Array.isArray(src.members)) members = src.members;
+            if (src.matches && typeof src.matches === 'object') matches = src.matches;
+            if (Array.isArray(src.yakumans)) yakumans = src.yakumans;
+            saveLocalBackup();
+        }
+
         async function saveToCloud() {
             saveLocalBackup();
             const statusEl = document.getElementById('sync-status');
             if (statusEl) { statusEl.textContent = "● 保存中..."; statusEl.className = "text-[11px] text-amber-400"; }
 
-            const payload = { id: 1, members, matches, yakumans, updated_at: new Date() };
+            const nowIso = new Date().toISOString();
+            const jsonPayload = {
+                id: 1,
+                data: { members, matches, yakumans },
+                updated_at: nowIso
+            };
+            const flatPayload = {
+                id: 1,
+                members,
+                matches,
+                yakumans,
+                updated_at: nowIso
+            };
+
             try {
-                const { error } = await db.from('mahjong_data').upsert(payload);
-                if (error) throw error;
+                if (useJsonColumn) {
+                    const { error } = await db.from('mahjong_data').upsert(jsonPayload, { onConflict: 'id' });
+                    if (error) throw error;
+                } else {
+                    const { error } = await db.from('mahjong_data').upsert(flatPayload, { onConflict: 'id' });
+                    if (error) throw error;
+                }
                 if (statusEl) { statusEl.textContent = "● 同期完了"; statusEl.className = "text-[11px] text-emerald-400"; }
             } catch (e) {
                 console.error("保存エラー:", e);
-                if (statusEl) { statusEl.textContent = "● ローカル保存済み (クラウド同期エラー)"; statusEl.className = "text-[11px] text-amber-400"; }
+                if (statusEl) {
+                    statusEl.textContent = "● クラウド保存エラー: " + (e.message || e);
+                    statusEl.className = "text-[11px] text-red-400";
+                }
             }
         }
 
         async function loadFromCloud() {
             const statusEl = document.getElementById('sync-status');
+            if (statusEl) { statusEl.textContent = "● 同期中..."; statusEl.className = "text-[11px] text-amber-400"; }
             try {
-                const { data, error } = await db.from('mahjong_data').select('*').eq('id', 1).single();
+                const { data, error } = await db.from('mahjong_data').select('*').eq('id', 1).maybeSingle();
                 if (error) throw error;
                 if (data) {
-                    members = Array.isArray(data.members) ? data.members : members;
-                    matches = data.matches || matches;
-                    yakumans = Array.isArray(data.yakumans) ? data.yakumans : yakumans;
-                    saveLocalBackup();
+                    applyCloudRow(data);
                     if (statusEl) { statusEl.textContent = "● 同期完了"; statusEl.className = "text-[11px] text-emerald-400"; }
+                } else {
+                    if (statusEl) { statusEl.textContent = "● クラウド行なし (保存で作成されます)"; statusEl.className = "text-[11px] text-amber-400"; }
                 }
             } catch (e) {
-                console.log("クラウド読込スキップ（ローカルデータを使用）:", e);
-                if (statusEl) { statusEl.textContent = "● ローカルデータ表示中 (クラウド未接続)"; statusEl.className = "text-[11px] text-amber-400"; }
+                console.error("クラウド読込エラー:", e);
+                if (statusEl) {
+                    statusEl.textContent = "● クラウド読込エラー: " + (e.message || e);
+                    statusEl.className = "text-[11px] text-red-400";
+                }
             }
             renderAll();
         }
@@ -965,11 +1004,10 @@
         function initRealtime() {
             db.channel('mahjong_sync')
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'mahjong_data' }, payload => {
-                    if (payload.new) {
-                        members = Array.isArray(payload.new.members) ? payload.new.members : [];
-                        matches = payload.new.matches || {};
-                        yakumans = Array.isArray(payload.new.yakumans) ? payload.new.yakumans : [];
-                        saveLocalBackup();
+                    if (payload.new && payload.new.id === 1) {
+                        applyCloudRow(payload.new);
+                        const statusEl = document.getElementById('sync-status');
+                        if (statusEl) { statusEl.textContent = "● 同期完了"; statusEl.className = "text-[11px] text-emerald-400"; }
                         renderAll();
                     }
                 })
