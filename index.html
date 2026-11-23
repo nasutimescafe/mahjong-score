@@ -948,27 +948,17 @@
             if (statusEl) { statusEl.textContent = "● 保存中..."; statusEl.className = "text-[11px] text-amber-400"; }
 
             const nowIso = new Date().toISOString();
-            const jsonPayload = {
-                id: 1,
-                data: { members, matches, yakumans },
-                updated_at: nowIso
-            };
-            const flatPayload = {
-                id: 1,
-                members,
-                matches,
-                yakumans,
-                updated_at: nowIso
-            };
-
             try {
-                if (useJsonColumn) {
-                    const { error } = await db.from('mahjong_data').upsert(jsonPayload, { onConflict: 'id' });
-                    if (error) throw error;
-                } else {
-                    const { error } = await db.from('mahjong_data').upsert(flatPayload, { onConflict: 'id' });
-                    if (error) throw error;
-                }
+                const targetPayload = useJsonColumn
+                    ? { data: { members, matches, yakumans }, updated_at: nowIso }
+                    : { members, matches, yakumans, updated_at: nowIso };
+
+                const { error } = await db
+                    .from('mahjong_data')
+                    .update(targetPayload)
+                    .eq('id', 1);
+
+                if (error) throw error;
                 if (statusEl) { statusEl.textContent = "● 同期完了"; statusEl.className = "text-[11px] text-emerald-400"; }
             } catch (e) {
                 console.error("保存エラー:", e);
