@@ -24,7 +24,7 @@
 
         <!-- モード切替バー -->
         <div class="card-bg p-3 rounded-lg flex justify-between items-center border border-cyan-900/50">
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-3 flex-wrap">
                 <span id="mode-text" class="text-xs sm:text-sm font-bold text-slate-300">モード: 閲覧専用</span>
                 <span id="sync-status" class="text-[11px] text-emerald-400">● 同期準備完了</span>
             </div>
@@ -61,7 +61,7 @@
                     <span class="text-xs text-cyan-300 font-bold">参加メンバーを横に増やす:</span>
                     <select id="add-col-select" class="input-bg px-2.5 py-1.5 rounded text-xs text-white"></select>
                     <button onclick="addColumnMember()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded text-xs">＋ 列を追加</button>
-                    <span class="text-[11px] text-slate-400 ml-auto">※各列の名前をプルダウンで変更できます</span>
+                    <span class="text-[11px] text-slate-400 ml-auto">※先に4人以上追加してから「＋ 新しい回戦を追加」を押してください</span>
                 </div>
 
                 <!-- スコア集計テーブル -->
@@ -187,6 +187,8 @@
         let matches = {};
         let yakumans = [];
         let useJsonColumn = true;
+        let currentRowId = null;
+        let isSavingCloud = false;
 
         let matchDate = new Date().toISOString().split('T')[0];
 
@@ -338,7 +340,7 @@
             }
         }
 
-       async function addColumnMember() {
+        async function addColumnMember() {
             if (!isAdmin) return;
             const day = ensureDayData(matchDate);
             if (day.finalized) {
@@ -360,8 +362,27 @@
                 return;
             }
             day.columns.push(chosen);
+            saveLocalBackup();
             renderAll();
             await saveToCloud();
+        }
+
+        function removeColumnMember(colIdx) {
+            if (!isAdmin) return;
+            const day = ensureDayData(matchDate);
+            if (day.finalized) {
+                alert("本日の集計は確定済みです。");
+                return;
+            }
+            const colName = day.columns[colIdx];
+            const hasScore = day.games.some(g => g.entries && colName in g.entries);
+            if (hasScore) {
+                alert(`「${colName}」はすでに対局スコアが入力されているため削除できません。`);
+                return;
+            }
+            day.columns.splice(colIdx, 1);
+            saveToCloud();
+            renderAll();
         }
 
         function changeColumnMember(colIdx, newName) {
@@ -421,15 +442,9 @@
                 alert("本日の集計は確定済みです。新しい回戦を追加するには先に確定を解除してください。");
                 return;
             }
-            if (members.length < 4) {
-                alert("対局するにはメンバーが4人以上必要です。「メンバー管理」タブから追加してください。");
-                switchTab('members');
-                return;
-            }
             if (day.columns.length < 4) {
-                members.slice(0, 4).forEach(m => {
-                    if (!day.columns.includes(m)) day.columns.push(m);
-                });
+                alert("先に上の「参加メンバーを横に増やす」から、今日の参加メンバーを4人以上追加してください。");
+                return;
             }
             day.games.push({
                 entries: {},
@@ -628,7 +643,7 @@
 
             if (columns.length === 0) {
                 theadTr.innerHTML = `<th class="p-2 border-r border-slate-700 w-16">回戦</th><th class="p-4 text-slate-400">まだメンバーが追加されていません</th>`;
-                tbody.innerHTML = `<tr><td colspan="2" class="p-6 text-slate-500">管理者モードにして「＋ 新しい回戦を追加」または「＋ 列を追加」から始めてください</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="2" class="p-6 text-slate-500">管理者モードにして「＋ 列を追加」から参加メンバーを4人以上追加してください</td></tr>`;
                 tfootTr.innerHTML = `<td class="p-2 border-r border-slate-700">合計pt</td><td>0</td>`;
                 return;
             }
@@ -637,8 +652,11 @@
             columns.forEach((colName, cIdx) => {
                 if (canEdit && members.length > 0) {
                     const opts = members.map(m => `<option value="${m}" ${m === colName ? 'selected' : ''}>${m}</option>`).join('');
-                    headHtml += `<th class="p-1.5 border-r border-slate-700 min-w-[110px]">
-                        <select onchange="changeColumnMember(${cIdx}, this.value)" class="input-bg px-1.5 py-1 rounded text-cyan-400 font-bold text-xs w-full text-center cursor-pointer">${opts}</select>
+                    headHtml += `<th class="p-1.5 border-r border-slate-700 min-w-[125px]">
+                        <div class="flex items-center gap-1">
+                            <select onchange="changeColumnMember(${cIdx}, this.value)" class="input-bg px-1 py-1 rounded text-cyan-400 font-bold text-xs w-full text-center cursor-pointer">${opts}</select>
+                            <button onclick="removeColumnMember(${cIdx})" title="この列を削除" class="text-red-400 hover:text-red-300 font-bold text-xs px-1">×</button>
+                        </div>
                     </th>`;
                 } else {
                     headHtml += `<th class="p-2 border-r border-slate-700 text-cyan-400 font-bold min-w-[100px]">${colName}</th>`;
@@ -947,35 +965,7 @@
             const statusEl = document.getElementById('sync-status');
             if (statusEl) { statusEl.textContent = "● 保存中..."; statusEl.className = "text-[11px] text-amber-400"; }
 
-            const nowIso = new Date().toISOString();
-            try {
-                const targetPayload = useJsonColumn
-                    ? { data: { members, matches, yakumans }, updated_at: nowIso }
-                    : { members, matches, yakumans, updated_at: nowIso };
-
-                const { error } = await db
-                    .from('mahjong_data')
-                    .update(targetPayload)
-                    .eq('id', 1);
-
-                if (error) throw error;
-                if (statusEl) { statusEl.textContent = "● 同期完了"; statusEl.className = "text-[11px] text-emerald-400"; }
-            } catch (e) {
-                console.error("保存エラー:", e);
-                if (statusEl) {
-                    statusEl.textContent = "● クラウド保存エラー: " + (e.message || e);
-                    statusEl.className = "text-[11px] text-red-400";
-                }
-            }
-        }
-
-        let currentRowId = null;
-
-        async function saveToCloud() {
-            saveLocalBackup();
-            const statusEl = document.getElementById('sync-status');
-            if (statusEl) { statusEl.textContent = "● 保存中..."; statusEl.className = "text-[11px] text-amber-400"; }
-
+            isSavingCloud = true;
             const nowIso = new Date().toISOString();
             try {
                 const targetPayload = useJsonColumn
@@ -1005,6 +995,8 @@
                     statusEl.textContent = "● クラウド保存エラー: " + (e.message || e);
                     statusEl.className = "text-[11px] text-red-400";
                 }
+            } finally {
+                setTimeout(() => { isSavingCloud = false; }, 400);
             }
         }
 
@@ -1039,6 +1031,7 @@
         function initRealtime() {
             db.channel('mahjong_sync')
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'mahjong_data' }, payload => {
+                    if (isSavingCloud) return;
                     if (payload.new) {
                         if (currentRowId === null || payload.new.id === currentRowId) {
                             currentRowId = payload.new.id;
