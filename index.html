@@ -338,7 +338,7 @@
             }
         }
 
-        function addColumnMember() {
+       async function addColumnMember() {
             if (!isAdmin) return;
             const day = ensureDayData(matchDate);
             if (day.finalized) {
@@ -360,8 +360,8 @@
                 return;
             }
             day.columns.push(chosen);
-            saveToCloud();
             renderAll();
+            await saveToCloud();
         }
 
         function changeColumnMember(colIdx, newName) {
