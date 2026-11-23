@@ -969,17 +969,62 @@
             }
         }
 
+        let currentRowId = null;
+
+        async function saveToCloud() {
+            saveLocalBackup();
+            const statusEl = document.getElementById('sync-status');
+            if (statusEl) { statusEl.textContent = "● 保存中..."; statusEl.className = "text-[11px] text-amber-400"; }
+
+            const nowIso = new Date().toISOString();
+            try {
+                const targetPayload = useJsonColumn
+                    ? { data: { members, matches, yakumans }, updated_at: nowIso }
+                    : { members, matches, yakumans, updated_at: nowIso };
+
+                if (currentRowId !== null) {
+                    const { error } = await db
+                        .from('mahjong_data')
+                        .update(targetPayload)
+                        .eq('id', currentRowId);
+                    if (error) throw error;
+                } else {
+                    const { data, error } = await db
+                        .from('mahjong_data')
+                        .insert(targetPayload)
+                        .select()
+                        .single();
+                    if (error) throw error;
+                    if (data && data.id !== undefined) currentRowId = data.id;
+                }
+
+                if (statusEl) { statusEl.textContent = "● 同期完了"; statusEl.className = "text-[11px] text-emerald-400"; }
+            } catch (e) {
+                console.error("保存エラー:", e);
+                if (statusEl) {
+                    statusEl.textContent = "● クラウド保存エラー: " + (e.message || e);
+                    statusEl.className = "text-[11px] text-red-400";
+                }
+            }
+        }
+
         async function loadFromCloud() {
             const statusEl = document.getElementById('sync-status');
             if (statusEl) { statusEl.textContent = "● 同期中..."; statusEl.className = "text-[11px] text-amber-400"; }
             try {
-                const { data, error } = await db.from('mahjong_data').select('*').eq('id', 1).maybeSingle();
+                const { data, error } = await db
+                    .from('mahjong_data')
+                    .select('*')
+                    .order('id', { ascending: true })
+                    .limit(1);
+
                 if (error) throw error;
-                if (data) {
-                    applyCloudRow(data);
+                if (data && data.length > 0) {
+                    currentRowId = data[0].id;
+                    applyCloudRow(data[0]);
                     if (statusEl) { statusEl.textContent = "● 同期完了"; statusEl.className = "text-[11px] text-emerald-400"; }
                 } else {
-                    if (statusEl) { statusEl.textContent = "● クラウド行なし (保存で作成されます)"; statusEl.className = "text-[11px] text-amber-400"; }
+                    if (statusEl) { statusEl.textContent = "● クラウド新規作成待機中"; statusEl.className = "text-[11px] text-amber-400"; }
                 }
             } catch (e) {
                 console.error("クラウド読込エラー:", e);
@@ -994,11 +1039,14 @@
         function initRealtime() {
             db.channel('mahjong_sync')
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'mahjong_data' }, payload => {
-                    if (payload.new && payload.new.id === 1) {
-                        applyCloudRow(payload.new);
-                        const statusEl = document.getElementById('sync-status');
-                        if (statusEl) { statusEl.textContent = "● 同期完了"; statusEl.className = "text-[11px] text-emerald-400"; }
-                        renderAll();
+                    if (payload.new) {
+                        if (currentRowId === null || payload.new.id === currentRowId) {
+                            currentRowId = payload.new.id;
+                            applyCloudRow(payload.new);
+                            const statusEl = document.getElementById('sync-status');
+                            if (statusEl) { statusEl.textContent = "● 同期完了"; statusEl.className = "text-[11px] text-emerald-400"; }
+                            renderAll();
+                        }
                     }
                 })
                 .subscribe();
