@@ -189,6 +189,7 @@
         let useJsonColumn = true;
         let currentRowId = null;
         let isSavingCloud = false;
+        let lastLocalSaveTime = 0;
 
         let matchDate = new Date().toISOString().split('T')[0];
 
@@ -225,13 +226,21 @@
         }
 
         function ensureDayData(date) {
-            if (!matches[date]) {
+            if (!matches || typeof matches !== 'object') matches = {};
+            if (!matches[date] || typeof matches[date] !== 'object') {
                 matches[date] = { columns: [], games: [], finalized: false };
             }
             if (!Array.isArray(matches[date].columns)) matches[date].columns = [];
             if (!Array.isArray(matches[date].games)) matches[date].games = [];
             if (typeof matches[date].finalized !== 'boolean') matches[date].finalized = false;
             return matches[date];
+        }
+
+        function isAnyGameEditing() {
+            return Object.keys(matches).some(d => {
+                const day = matches[d];
+                return day && Array.isArray(day.games) && day.games.some(g => g.isEditing);
+            });
         }
 
         function setAdminControlsVisible(visible) {
@@ -301,12 +310,14 @@
                 }
                 if (confirm(`${matchDate} の集計を終了（確定）しますか？\n※確定後も必要に応じて解除・修正できます。`)) {
                     day.finalized = true;
+                    lastLocalSaveTime = Date.now();
                     saveToCloud();
                     renderAll();
                 }
             } else {
                 if (confirm(`${matchDate} の集計確定を解除して、編集できるようにしますか？`)) {
                     day.finalized = false;
+                    lastLocalSaveTime = Date.now();
                     saveToCloud();
                     renderAll();
                 }
@@ -327,6 +338,7 @@
             }
             members.push(name);
             input.value = '';
+            lastLocalSaveTime = Date.now();
             saveToCloud();
             renderAll();
         }
@@ -335,6 +347,7 @@
             if (!isAdmin) return;
             if (confirm(`「${name}」をメンバーリストから削除しますか？`)) {
                 members = members.filter(m => m !== name);
+                lastLocalSaveTime = Date.now();
                 saveToCloud();
                 renderAll();
             }
@@ -361,7 +374,9 @@
                 alert("すでにその日の表に並んでいます。");
                 return;
             }
-            day.columns.push(chosen);
+
+            day.columns = [...day.columns, chosen];
+            lastLocalSaveTime = Date.now();
             saveLocalBackup();
             renderAll();
             await saveToCloud();
@@ -381,6 +396,7 @@
                 return;
             }
             day.columns.splice(colIdx, 1);
+            lastLocalSaveTime = Date.now();
             saveToCloud();
             renderAll();
         }
@@ -411,6 +427,7 @@
                     delete g.points[oldName];
                 }
             });
+            lastLocalSaveTime = Date.now();
             saveToCloud();
             renderAll();
         }
@@ -446,12 +463,17 @@
                 alert("先に上の「参加メンバーを横に増やす」から、今日の参加メンバーを4人以上追加してください。");
                 return;
             }
+            if (day.games.some(g => g.isEditing)) {
+                alert("現在入力中の回戦があります。先に「登録」または「取消」を押してください。");
+                return;
+            }
             day.games.push({
                 entries: {},
                 points: {},
                 isEditing: true,
                 savedOnce: false
             });
+            saveLocalBackup();
             renderAll();
         }
 
@@ -521,6 +543,7 @@
             g.isEditing = false;
             g.savedOnce = true;
 
+            lastLocalSaveTime = Date.now();
             saveToCloud();
             renderAll();
         }
@@ -538,6 +561,7 @@
                     if (day.games.length === 0 && (!day.columns || day.columns.length === 0)) {
                         delete matches[date];
                     }
+                    lastLocalSaveTime = Date.now();
                     saveToCloud();
                     renderAll();
                 }
@@ -561,6 +585,7 @@
                 target.games.push(...(src.games || []));
                 delete matches[oldDate];
             }
+            lastLocalSaveTime = Date.now();
             saveToCloud();
             renderAll();
         }
@@ -575,6 +600,7 @@
             }
             yakumans.push({ date, member, name });
             document.getElementById('yk-name').value = '';
+            lastLocalSaveTime = Date.now();
             saveToCloud();
             renderAll();
         }
@@ -583,6 +609,7 @@
             if (!isAdmin) return;
             if (confirm("この役満記録を削除しますか？")) {
                 yakumans.splice(idx, 1);
+                lastLocalSaveTime = Date.now();
                 saveToCloud();
                 renderAll();
             }
@@ -602,7 +629,7 @@
             const sel = document.getElementById('add-col-select');
             if (!sel) return;
             const day = matches[matchDate];
-            const used = (day && day.columns) ? day.columns : [];
+            const used = (day && Array.isArray(day.columns)) ? day.columns : [];
             const avail = members.filter(m => !used.includes(m));
             if (avail.length === 0) {
                 sel.innerHTML = `<option value="">追加できるメンバーなし</option>`;
@@ -665,12 +692,12 @@
             headHtml += `<th class="p-2 w-24">操作</th>`;
             theadTr.innerHTML = headHtml;
 
-            tbody.innerHTML = '';
+            let bodyHtml = '';
             const dayTotals = {};
             columns.forEach(c => dayTotals[c] = 0);
 
             if (games.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="${columns.length + 2}" class="p-6 text-slate-500">この日の対局記録はまだありません</td></tr>`;
+                bodyHtml = `<tr><td colspan="${columns.length + 2}" class="p-6 text-slate-500">この日の対局記録はまだありません</td></tr>`;
             }
 
             games.forEach((g, gIdx) => {
@@ -690,7 +717,7 @@
                         <button onclick="saveGameRow(${gIdx})" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white px-2 py-1 rounded text-xs font-bold">登録</button>
                         <button onclick="cancelGameRow(${gIdx})" class="w-full bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded text-xs">取消</button>
                     </td></tr>`;
-                    tbody.innerHTML += row;
+                    bodyHtml += row;
                 } else {
                     let row = `<tr class="border-b border-slate-800">
                         <td class="p-2 border-r border-slate-800 font-bold">${gIdx + 1}回戦</td>`;
@@ -714,9 +741,10 @@
                         row += `<td class="p-2 text-slate-600">${isFinalized ? '確定' : '--'}</td>`;
                     }
                     row += `</tr>`;
-                    tbody.innerHTML += row;
+                    bodyHtml += row;
                 }
             });
+            tbody.innerHTML = bodyHtml;
 
             let footHtml = `<td class="p-2 border-r border-slate-700">合計pt</td>`;
             columns.forEach(colName => {
@@ -996,7 +1024,7 @@
                     statusEl.className = "text-[11px] text-red-400";
                 }
             } finally {
-                setTimeout(() => { isSavingCloud = false; }, 400);
+                setTimeout(() => { isSavingCloud = false; }, 500);
             }
         }
 
@@ -1032,13 +1060,14 @@
             db.channel('mahjong_sync')
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'mahjong_data' }, payload => {
                     if (isSavingCloud) return;
+                    if (Date.now() - lastLocalSaveTime < 2500) return;
                     if (payload.new) {
                         if (currentRowId === null || payload.new.id === currentRowId) {
                             currentRowId = payload.new.id;
                             applyCloudRow(payload.new);
                             const statusEl = document.getElementById('sync-status');
                             if (statusEl) { statusEl.textContent = "● 同期完了"; statusEl.className = "text-[11px] text-emerald-400"; }
-                            renderAll();
+                            if (!isAnyGameEditing()) renderAll();
                         }
                     }
                 })
