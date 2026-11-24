@@ -22,15 +22,23 @@
             麻雀成績管理システム (雀鬼風)
         </h1>
 
-        <!-- モード切替バー -->
-        <div class="card-bg p-3 rounded-lg flex justify-between items-center border border-cyan-900/50">
+        <!-- モード切替＆同期コントロールバー -->
+        <div class="card-bg p-3 rounded-lg flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border border-cyan-900/50">
             <div class="flex items-center gap-3 flex-wrap">
                 <span id="mode-text" class="text-xs sm:text-sm font-bold text-slate-300">モード: 閲覧専用</span>
-                <span id="sync-status" class="text-[11px] text-emerald-400">● 同期準備完了</span>
+                <span id="sync-status" class="text-[11px] text-amber-400">● 接続確認中...</span>
             </div>
-            <button id="auth-toggle-btn" onclick="toggleMode()" class="bg-red-600 hover:bg-red-500 text-white font-bold text-xs sm:text-sm px-4 py-2 rounded transition shadow">
-                管理者モードに切替
-            </button>
+            <div class="flex items-center gap-2 flex-wrap">
+                <button onclick="manualSyncDown()" class="bg-slate-700 hover:bg-slate-600 text-white text-xs px-3 py-2 rounded transition">
+                    最新データを受信
+                </button>
+                <button id="force-push-btn" onclick="manualSyncUp()" class="hidden bg-emerald-700 hover:bg-emerald-600 text-white text-xs px-3 py-2 rounded transition">
+                    クラウドへ強制保存
+                </button>
+                <button id="auth-toggle-btn" onclick="toggleMode()" class="bg-red-600 hover:bg-red-500 text-white font-bold text-xs sm:text-sm px-4 py-2 rounded transition shadow">
+                    管理者モードに切替
+                </button>
+            </div>
         </div>
 
         <!-- タブ -->
@@ -60,7 +68,7 @@
                 <div id="add-col-bar" class="hidden p-3 bg-slate-900/70 rounded-lg border border-slate-700 flex flex-wrap items-center gap-2">
                     <span class="text-xs text-cyan-300 font-bold">参加メンバーを横に増やす:</span>
                     <select id="add-col-select" class="input-bg px-2.5 py-1.5 rounded text-xs text-white"></select>
-                    <button onclick="addColumnMember()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded text-xs">＋ 列を追加</button>
+                    <button type="button" onclick="addColumnMember()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded text-xs">＋ 列を追加</button>
                     <span class="text-[11px] text-slate-400 ml-auto">※先に4人以上追加してから「＋ 新しい回戦を追加」を押してください</span>
                 </div>
 
@@ -80,10 +88,10 @@
                 <div class="text-xs text-slate-400 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                     <span>※25,000点持ち・30,000点返し / ウマ：1位+20, 2位+10, 3位-10, 4位-20（オカ込み・完全ゼロサム・四捨五入）</span>
                     <div class="flex flex-wrap gap-2">
-                        <button id="add-game-btn" onclick="addNewGameRow()" class="hidden bg-cyan-600 hover:bg-cyan-500 text-white font-bold px-4 py-2 rounded text-xs shadow">
+                        <button type="button" id="add-game-btn" onclick="addNewGameRow()" class="hidden bg-cyan-600 hover:bg-cyan-500 text-white font-bold px-4 py-2 rounded text-xs shadow">
                             ＋ 新しい回戦を追加
                         </button>
-                        <button id="finalize-day-btn" onclick="toggleFinalizeDay()" class="hidden bg-amber-600 hover:bg-amber-500 text-white font-bold px-4 py-2 rounded text-xs shadow">
+                        <button type="button" id="finalize-day-btn" onclick="toggleFinalizeDay()" class="hidden bg-amber-600 hover:bg-amber-500 text-white font-bold px-4 py-2 rounded text-xs shadow">
                             本日の集計を終了（確定）
                         </button>
                     </div>
@@ -140,7 +148,7 @@
                         <input type="date" id="yk-date" class="input-bg p-2 rounded text-sm text-white">
                         <select id="yk-member" class="input-bg p-2 rounded text-sm text-white"></select>
                         <input type="text" id="yk-name" placeholder="役満名 (例: 国士無双, 四暗刻)" class="input-bg p-2 rounded text-sm text-white">
-                        <button onclick="addYakumanManual()" class="bg-amber-600 hover:bg-amber-500 font-bold py-2 px-4 rounded text-sm text-white">記録を追加</button>
+                        <button type="button" onclick="addYakumanManual()" class="bg-amber-600 hover:bg-amber-500 font-bold py-2 px-4 rounded text-sm text-white">記録を追加</button>
                     </div>
                 </div>
                 <div class="overflow-x-auto rounded border border-slate-700">
@@ -168,7 +176,7 @@
                 </div>
                 <div id="admin-member-input" class="hidden flex gap-2">
                     <input type="text" id="new-member-name" placeholder="新しいメンバー名を入力" class="input-bg px-3 py-2 rounded text-white text-sm flex-1">
-                    <button onclick="addMember()" class="bg-emerald-600 hover:bg-emerald-500 px-5 py-2 rounded font-bold text-sm text-white">追加</button>
+                    <button type="button" onclick="addMember()" class="bg-emerald-600 hover:bg-emerald-500 px-5 py-2 rounded font-bold text-sm text-white">追加</button>
                 </div>
                 <div id="member-tags" class="flex flex-wrap gap-2 pt-2"></div>
             </div>
@@ -180,16 +188,18 @@
         const SUPABASE_URL = 'https://wfuijawdjndqevwmtjoa.supabase.co';
         const SUPABASE_ANON_KEY = 'sb_publishable_EFaXmwtBYHITi4W741XdQw_v5qQds0h';
         const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-        const LOCAL_STORAGE_KEY = 'mahjong_janki_backup_v1';
+        const LOCAL_STORAGE_KEY = 'mahjong_janki_backup_v2';
 
         let isAdmin = false;
         let members = [];
         let matches = {};
         let yakumans = [];
-        let useJsonColumn = true;
+
+        // DBスキーマ自動判定用 ('unknown' | 'json_data' | 'flat_columns')
+        let schemaMode = 'unknown';
         let currentRowId = null;
         let isSavingCloud = false;
-        let lastLocalSaveTime = 0;
+        let lastLocalMutation = 0;
 
         let matchDate = new Date().toISOString().split('T')[0];
 
@@ -204,8 +214,8 @@
 
         function saveLocalBackup() {
             try {
-                const data = { members, matches, yakumans, savedAt: new Date().toISOString() };
-                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
+                const payload = { members, matches, yakumans, savedAt: new Date().toISOString() };
+                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(payload));
             } catch (e) {
                 console.error("ローカル保存エラー:", e);
             }
@@ -213,7 +223,7 @@
 
         function loadLocalBackup() {
             try {
-                const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+                const raw = localStorage.getItem(LOCAL_STORAGE_KEY) || localStorage.getItem('mahjong_janki_backup_v1');
                 if (raw) {
                     const parsed = JSON.parse(raw);
                     if (Array.isArray(parsed.members)) members = parsed.members;
@@ -223,6 +233,10 @@
             } catch (e) {
                 console.error("ローカル読込エラー:", e);
             }
+        }
+
+        function hasAnyLocalData() {
+            return members.length > 0 || Object.keys(matches).length > 0 || yakumans.length > 0;
         }
 
         function ensureDayData(date) {
@@ -244,7 +258,7 @@
         }
 
         function setAdminControlsVisible(visible) {
-            ['admin-member-input', 'admin-yakuman-form', 'add-game-btn', 'add-col-bar', 'finalize-day-btn'].forEach(id => {
+            ['admin-member-input', 'admin-yakuman-form', 'add-game-btn', 'add-col-bar', 'finalize-day-btn', 'force-push-btn'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) {
                     if (visible) el.classList.remove('hidden');
@@ -300,6 +314,16 @@
             renderAll();
         }
 
+        async function manualSyncDown() {
+            await loadFromCloud();
+        }
+
+        async function manualSyncUp() {
+            if (!isAdmin) return;
+            lastLocalMutation = Date.now();
+            await saveToCloud();
+        }
+
         function toggleFinalizeDay() {
             if (!isAdmin) return;
             const day = ensureDayData(matchDate);
@@ -310,16 +334,16 @@
                 }
                 if (confirm(`${matchDate} の集計を終了（確定）しますか？\n※確定後も必要に応じて解除・修正できます。`)) {
                     day.finalized = true;
-                    lastLocalSaveTime = Date.now();
-                    saveToCloud();
+                    lastLocalMutation = Date.now();
                     renderAll();
+                    saveToCloud();
                 }
             } else {
                 if (confirm(`${matchDate} の集計確定を解除して、編集できるようにしますか？`)) {
                     day.finalized = false;
-                    lastLocalSaveTime = Date.now();
-                    saveToCloud();
+                    lastLocalMutation = Date.now();
                     renderAll();
+                    saveToCloud();
                 }
             }
         }
@@ -336,24 +360,26 @@
                 alert("すでに同じ名前のメンバーが登録されています。");
                 return;
             }
-            members.push(name);
+            members = [...members, name];
             input.value = '';
-            lastLocalSaveTime = Date.now();
-            saveToCloud();
+            lastLocalMutation = Date.now();
+            saveLocalBackup();
             renderAll();
+            saveToCloud();
         }
 
         function removeMember(name) {
             if (!isAdmin) return;
             if (confirm(`「${name}」をメンバーリストから削除しますか？`)) {
                 members = members.filter(m => m !== name);
-                lastLocalSaveTime = Date.now();
-                saveToCloud();
+                lastLocalMutation = Date.now();
+                saveLocalBackup();
                 renderAll();
+                saveToCloud();
             }
         }
 
-        async function addColumnMember() {
+        function addColumnMember() {
             if (!isAdmin) return;
             const day = ensureDayData(matchDate);
             if (day.finalized) {
@@ -376,10 +402,10 @@
             }
 
             day.columns = [...day.columns, chosen];
-            lastLocalSaveTime = Date.now();
+            lastLocalMutation = Date.now();
             saveLocalBackup();
             renderAll();
-            await saveToCloud();
+            saveToCloud();
         }
 
         function removeColumnMember(colIdx) {
@@ -396,9 +422,10 @@
                 return;
             }
             day.columns.splice(colIdx, 1);
-            lastLocalSaveTime = Date.now();
-            saveToCloud();
+            lastLocalMutation = Date.now();
+            saveLocalBackup();
             renderAll();
+            saveToCloud();
         }
 
         function changeColumnMember(colIdx, newName) {
@@ -427,9 +454,10 @@
                     delete g.points[oldName];
                 }
             });
-            lastLocalSaveTime = Date.now();
-            saveToCloud();
+            lastLocalMutation = Date.now();
+            saveLocalBackup();
             renderAll();
+            saveToCloud();
         }
 
         function calculateFourPlayerPoints(playerScores) {
@@ -543,9 +571,10 @@
             g.isEditing = false;
             g.savedOnce = true;
 
-            lastLocalSaveTime = Date.now();
-            saveToCloud();
+            lastLocalMutation = Date.now();
+            saveLocalBackup();
             renderAll();
+            saveToCloud();
         }
 
         function deleteGameRecord(date, gameIdx) {
@@ -561,9 +590,10 @@
                     if (day.games.length === 0 && (!day.columns || day.columns.length === 0)) {
                         delete matches[date];
                     }
-                    lastLocalSaveTime = Date.now();
-                    saveToCloud();
+                    lastLocalMutation = Date.now();
+                    saveLocalBackup();
                     renderAll();
+                    saveToCloud();
                 }
             }
         }
@@ -585,9 +615,10 @@
                 target.games.push(...(src.games || []));
                 delete matches[oldDate];
             }
-            lastLocalSaveTime = Date.now();
-            saveToCloud();
+            lastLocalMutation = Date.now();
+            saveLocalBackup();
             renderAll();
+            saveToCloud();
         }
 
         function addYakumanManual() {
@@ -600,18 +631,20 @@
             }
             yakumans.push({ date, member, name });
             document.getElementById('yk-name').value = '';
-            lastLocalSaveTime = Date.now();
-            saveToCloud();
+            lastLocalMutation = Date.now();
+            saveLocalBackup();
             renderAll();
+            saveToCloud();
         }
 
         function deleteYakuman(idx) {
             if (!isAdmin) return;
             if (confirm("この役満記録を削除しますか？")) {
                 yakumans.splice(idx, 1);
-                lastLocalSaveTime = Date.now();
-                saveToCloud();
+                lastLocalMutation = Date.now();
+                saveLocalBackup();
                 renderAll();
+                saveToCloud();
             }
         }
 
@@ -682,7 +715,7 @@
                     headHtml += `<th class="p-1.5 border-r border-slate-700 min-w-[125px]">
                         <div class="flex items-center gap-1">
                             <select onchange="changeColumnMember(${cIdx}, this.value)" class="input-bg px-1 py-1 rounded text-cyan-400 font-bold text-xs w-full text-center cursor-pointer">${opts}</select>
-                            <button onclick="removeColumnMember(${cIdx})" title="この列を削除" class="text-red-400 hover:text-red-300 font-bold text-xs px-1">×</button>
+                            <button type="button" onclick="removeColumnMember(${cIdx})" title="この列を削除" class="text-red-400 hover:text-red-300 font-bold text-xs px-1">×</button>
                         </div>
                     </th>`;
                 } else {
@@ -714,8 +747,8 @@
                         </td>`;
                     });
                     row += `<td class="p-2 space-y-1">
-                        <button onclick="saveGameRow(${gIdx})" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white px-2 py-1 rounded text-xs font-bold">登録</button>
-                        <button onclick="cancelGameRow(${gIdx})" class="w-full bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded text-xs">取消</button>
+                        <button type="button" onclick="saveGameRow(${gIdx})" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white px-2 py-1 rounded text-xs font-bold">登録</button>
+                        <button type="button" onclick="cancelGameRow(${gIdx})" class="w-full bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded text-xs">取消</button>
                     </td></tr>`;
                     bodyHtml += row;
                 } else {
@@ -734,8 +767,8 @@
                     });
                     if (canEdit) {
                         row += `<td class="p-2 flex flex-col gap-1">
-                            <button onclick="startEditGameRow(${gIdx})" class="bg-sky-700 hover:bg-sky-600 text-white px-2 py-1 rounded text-xs">修正</button>
-                            <button onclick="deleteGameRecord('${matchDate}', ${gIdx})" class="bg-red-700 hover:bg-red-600 text-white px-2 py-1 rounded text-xs">削除</button>
+                            <button type="button" onclick="startEditGameRow(${gIdx})" class="bg-sky-700 hover:bg-sky-600 text-white px-2 py-1 rounded text-xs">修正</button>
+                            <button type="button" onclick="deleteGameRecord('${matchDate}', ${gIdx})" class="bg-red-700 hover:bg-red-600 text-white px-2 py-1 rounded text-xs">削除</button>
                         </td>`;
                     } else {
                         row += `<td class="p-2 text-slate-600">${isFinalized ? '確定' : '--'}</td>`;
@@ -913,7 +946,7 @@
                     return `<div class="space-y-1">
                         <div class="flex justify-between items-center text-xs text-slate-400">
                             <span>${idx + 1}回戦</span>
-                            ${isAdmin ? `<button onclick="deleteGameRecord('${date}', ${idx})" class="text-red-400 hover:underline">削除</button>` : ''}
+                            ${isAdmin ? `<button type="button" onclick="deleteGameRecord('${date}', ${idx})" class="text-red-400 hover:underline">削除</button>` : ''}
                         </div>
                         <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">${pHtml}</div>
                     </div>`;
@@ -922,7 +955,7 @@
                 return `<div class="card-bg p-4 rounded-lg space-y-3 border border-slate-700">
                     <div class="flex justify-between items-center border-b border-slate-700 pb-2">
                         <span class="font-bold text-cyan-300 text-base">${date}（全${validGames.length}回戦）${d.finalized ? '<span class="ml-2 text-xs text-emerald-400">[確定済み]</span>' : ''}</span>
-                        ${isAdmin ? `<button onclick="moveDateRecord('${date}')" class="bg-slate-700 hover:bg-slate-600 text-white px-2.5 py-1 rounded text-xs">日時修正</button>` : ''}
+                        ${isAdmin ? `<button type="button" onclick="moveDateRecord('${date}')" class="bg-slate-700 hover:bg-slate-600 text-white px-2.5 py-1 rounded text-xs">日時修正</button>` : ''}
                     </div>
                     <div class="space-y-3">${gamesHtml}</div>
                 </div>`;
@@ -950,7 +983,7 @@
                     <td class="p-2 border-r border-slate-800 text-cyan-300 font-bold">${y.member}</td>
                     <td class="p-2 border-r border-slate-800 text-amber-400 font-bold">${y.name}</td>
                     <td class="p-2">
-                        ${isAdmin ? `<button onclick="deleteYakuman(${idx})" class="bg-red-700 hover:bg-red-600 text-white px-2 py-1 rounded text-xs">削除</button>` : '--'}
+                        ${isAdmin ? `<button type="button" onclick="deleteYakuman(${idx})" class="bg-red-700 hover:bg-red-600 text-white px-2 py-1 rounded text-xs">削除</button>` : '--'}
                     </td>
                 </tr>
             `).join('');
@@ -969,68 +1002,142 @@
             container.innerHTML = members.map(m => `
                 <span class="bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-full text-sm text-cyan-300 flex items-center gap-2">
                     ${m}
-                    ${isAdmin ? `<button onclick="removeMember('${m}')" class="text-red-400 hover:text-red-300 font-bold text-xs">×</button>` : ''}
+                    ${isAdmin ? `<button type="button" onclick="removeMember('${m}')" class="text-red-400 hover:text-red-300 font-bold text-xs">×</button>` : ''}
                 </span>
             `).join('');
         }
 
-        function applyCloudRow(row) {
-            if (!row) return;
-            const src = (row.data && typeof row.data === 'object') ? row.data : row;
-            if (row.data && typeof row.data === 'object') {
-                useJsonColumn = true;
-            } else if ('members' in row || 'matches' in row) {
-                useJsonColumn = false;
+        // --- クラウド同期（スキーマ自動検出・空データ保護付き） ---
+
+        function detectSchemaAndExtract(row) {
+            if (!row || typeof row !== 'object') return null;
+
+            // パターン1: data 列 (JSONB) にまとめて入っている場合
+            if ('data' in row) {
+                schemaMode = 'json_data';
+                const d = (row.data && typeof row.data === 'object') ? row.data : {};
+                return {
+                    members: Array.isArray(d.members) ? d.members : [],
+                    matches: (d.matches && typeof d.matches === 'object') ? d.matches : {},
+                    yakumans: Array.isArray(d.yakumans) ? d.yakumans : []
+                };
             }
-            if (Array.isArray(src.members)) members = src.members;
-            if (src.matches && typeof src.matches === 'object') matches = src.matches;
-            if (Array.isArray(src.yakumans)) yakumans = src.yakumans;
+
+            // パターン2: members / matches / yakumans が個別列の場合
+            if ('members' in row || 'matches' in row) {
+                schemaMode = 'flat_columns';
+                return {
+                    members: Array.isArray(row.members) ? row.members : [],
+                    matches: (row.matches && typeof row.matches === 'object') ? row.matches : {},
+                    yakumans: Array.isArray(row.yakumans) ? row.yakumans : []
+                };
+            }
+
+            return null;
+        }
+
+        function applyCloudRowSafely(row) {
+            const extracted = detectSchemaAndExtract(row);
+            if (!extracted) return;
+
+            const cloudHasData =
+                extracted.members.length > 0 ||
+                Object.keys(extracted.matches).length > 0 ||
+                extracted.yakumans.length > 0;
+
+            // クラウド側が空で、手元にデータがある場合は手元のデータを消さない
+            if (!cloudHasData && hasAnyLocalData()) {
+                return;
+            }
+
+            members = extracted.members;
+            matches = extracted.matches;
+            yakumans = extracted.yakumans;
             saveLocalBackup();
+        }
+
+        function buildPayloadForMode(mode, nowIso) {
+            if (mode === 'flat_columns') {
+                return { members, matches, yakumans, updated_at: nowIso };
+            }
+            return { data: { members, matches, yakumans }, updated_at: nowIso };
+        }
+
+        async function writeRowToSupabase(mode, nowIso) {
+            const payload = buildPayloadForMode(mode, nowIso);
+            if (currentRowId !== null) {
+                const { data, error } = await db
+                    .from('mahjong_data')
+                    .update(payload)
+                    .eq('id', currentRowId)
+                    .select();
+                if (error) throw error;
+                if (!data || data.length === 0) {
+                    // 指定したidの行が消えていた場合は新規insertに切り替える
+                    currentRowId = null;
+                    return await writeRowToSupabase(mode, nowIso);
+                }
+                return data[0];
+            } else {
+                const { data, error } = await db
+                    .from('mahjong_data')
+                    .insert(payload)
+                    .select();
+                if (error) throw error;
+                if (data && data.length > 0 && data[0].id !== undefined) {
+                    currentRowId = data[0].id;
+                }
+                return data ? data[0] : null;
+            }
         }
 
         async function saveToCloud() {
             saveLocalBackup();
             const statusEl = document.getElementById('sync-status');
-            if (statusEl) { statusEl.textContent = "● 保存中..."; statusEl.className = "text-[11px] text-amber-400"; }
+            if (statusEl) {
+                statusEl.textContent = "● 保存中...";
+                statusEl.className = "text-[11px] text-amber-400";
+            }
 
             isSavingCloud = true;
             const nowIso = new Date().toISOString();
+            const primaryMode = schemaMode === 'flat_columns' ? 'flat_columns' : 'json_data';
+            const fallbackMode = primaryMode === 'json_data' ? 'flat_columns' : 'json_data';
+
             try {
-                const targetPayload = useJsonColumn
-                    ? { data: { members, matches, yakumans }, updated_at: nowIso }
-                    : { members, matches, yakumans, updated_at: nowIso };
-
-                if (currentRowId !== null) {
-                    const { error } = await db
-                        .from('mahjong_data')
-                        .update(targetPayload)
-                        .eq('id', currentRowId);
-                    if (error) throw error;
-                } else {
-                    const { data, error } = await db
-                        .from('mahjong_data')
-                        .insert(targetPayload)
-                        .select()
-                        .single();
-                    if (error) throw error;
-                    if (data && data.id !== undefined) currentRowId = data.id;
-                }
-
-                if (statusEl) { statusEl.textContent = "● 同期完了"; statusEl.className = "text-[11px] text-emerald-400"; }
-            } catch (e) {
-                console.error("保存エラー:", e);
+                await writeRowToSupabase(primaryMode, nowIso);
+                schemaMode = primaryMode;
                 if (statusEl) {
-                    statusEl.textContent = "● クラウド保存エラー: " + (e.message || e);
-                    statusEl.className = "text-[11px] text-red-400";
+                    statusEl.textContent = "● 同期完了";
+                    statusEl.className = "text-[11px] text-emerald-400";
+                }
+            } catch (firstErr) {
+                // 列名不一致エラーの場合はもう一方の列形式へ自動フォールバックして再試行
+                try {
+                    await writeRowToSupabase(fallbackMode, nowIso);
+                    schemaMode = fallbackMode;
+                    if (statusEl) {
+                        statusEl.textContent = "● 同期完了";
+                        statusEl.className = "text-[11px] text-emerald-400";
+                    }
+                } catch (secondErr) {
+                    console.error("クラウド保存エラー:", firstErr, secondErr);
+                    if (statusEl) {
+                        statusEl.textContent = "● クラウド保存エラー: " + (secondErr.message || firstErr.message || "保存失敗");
+                        statusEl.className = "text-[11px] text-red-400";
+                    }
                 }
             } finally {
-                setTimeout(() => { isSavingCloud = false; }, 500);
+                setTimeout(() => { isSavingCloud = false; }, 800);
             }
         }
 
         async function loadFromCloud() {
             const statusEl = document.getElementById('sync-status');
-            if (statusEl) { statusEl.textContent = "● 同期中..."; statusEl.className = "text-[11px] text-amber-400"; }
+            if (statusEl) {
+                statusEl.textContent = "● 同期中...";
+                statusEl.className = "text-[11px] text-amber-400";
+            }
             try {
                 const { data, error } = await db
                     .from('mahjong_data')
@@ -1041,10 +1148,16 @@
                 if (error) throw error;
                 if (data && data.length > 0) {
                     currentRowId = data[0].id;
-                    applyCloudRow(data[0]);
-                    if (statusEl) { statusEl.textContent = "● 同期完了"; statusEl.className = "text-[11px] text-emerald-400"; }
+                    applyCloudRowSafely(data[0]);
+                    if (statusEl) {
+                        statusEl.textContent = "● 同期完了";
+                        statusEl.className = "text-[11px] text-emerald-400";
+                    }
                 } else {
-                    if (statusEl) { statusEl.textContent = "● クラウド新規作成待機中"; statusEl.className = "text-[11px] text-amber-400"; }
+                    if (statusEl) {
+                        statusEl.textContent = "● クラウド未保存（管理者で保存すると同期されます）";
+                        statusEl.className = "text-[11px] text-amber-400";
+                    }
                 }
             } catch (e) {
                 console.error("クラウド読込エラー:", e);
@@ -1060,13 +1173,16 @@
             db.channel('mahjong_sync')
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'mahjong_data' }, payload => {
                     if (isSavingCloud) return;
-                    if (Date.now() - lastLocalSaveTime < 2500) return;
+                    if (Date.now() - lastLocalMutation < 4000) return;
                     if (payload.new) {
                         if (currentRowId === null || payload.new.id === currentRowId) {
                             currentRowId = payload.new.id;
-                            applyCloudRow(payload.new);
+                            applyCloudRowSafely(payload.new);
                             const statusEl = document.getElementById('sync-status');
-                            if (statusEl) { statusEl.textContent = "● 同期完了"; statusEl.className = "text-[11px] text-emerald-400"; }
+                            if (statusEl) {
+                                statusEl.textContent = "● 同期完了";
+                                statusEl.className = "text-[11px] text-emerald-400";
+                            }
                             if (!isAnyGameEditing()) renderAll();
                         }
                     }
