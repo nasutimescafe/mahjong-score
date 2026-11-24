@@ -29,13 +29,13 @@
                 <span id="sync-status" class="text-[11px] text-amber-400">● 接続確認中...</span>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
-                <button onclick="manualSyncDown()" class="bg-slate-700 hover:bg-slate-600 text-white text-xs px-3 py-2 rounded transition">
+                <button type="button" onclick="manualSyncDown()" class="bg-slate-700 hover:bg-slate-600 text-white text-xs px-3 py-2 rounded transition">
                     最新データを受信
                 </button>
-                <button id="force-push-btn" onclick="manualSyncUp()" class="hidden bg-emerald-700 hover:bg-emerald-600 text-white text-xs px-3 py-2 rounded transition">
+                <button type="button" id="force-push-btn" onclick="manualSyncUp()" class="hidden bg-emerald-700 hover:bg-emerald-600 text-white text-xs px-3 py-2 rounded transition">
                     クラウドへ強制保存
                 </button>
-                <button id="auth-toggle-btn" onclick="toggleMode()" class="bg-red-600 hover:bg-red-500 text-white font-bold text-xs sm:text-sm px-4 py-2 rounded transition shadow">
+                <button type="button" id="auth-toggle-btn" onclick="toggleMode()" class="bg-red-600 hover:bg-red-500 text-white font-bold text-xs sm:text-sm px-4 py-2 rounded transition shadow">
                     管理者モードに切替
                 </button>
             </div>
@@ -43,11 +43,11 @@
 
         <!-- タブ -->
         <div class="border-b border-slate-700 flex space-x-5 text-sm overflow-x-auto pb-1">
-            <button onclick="switchTab('daily')" id="tab-btn-daily" class="tab-btn tab-active pb-2 whitespace-nowrap">集計表 (日別)</button>
-            <button onclick="switchTab('stats')" id="tab-btn-stats" class="tab-btn tab-inactive pb-2 whitespace-nowrap">戦績一覧</button>
-            <button onclick="switchTab('history')" id="tab-btn-history" class="tab-btn tab-inactive pb-2 whitespace-nowrap">対局履歴</button>
-            <button onclick="switchTab('yakuman')" id="tab-btn-yakuman" class="tab-btn tab-inactive pb-2 whitespace-nowrap">役満記録</button>
-            <button onclick="switchTab('members')" id="tab-btn-members" class="tab-btn tab-inactive pb-2 whitespace-nowrap">メンバー管理 (100人)</button>
+            <button type="button" onclick="switchTab('daily')" id="tab-btn-daily" class="tab-btn tab-active pb-2 whitespace-nowrap">集計表 (日別)</button>
+            <button type="button" onclick="switchTab('stats')" id="tab-btn-stats" class="tab-btn tab-inactive pb-2 whitespace-nowrap">戦績一覧</button>
+            <button type="button" onclick="switchTab('history')" id="tab-btn-history" class="tab-btn tab-inactive pb-2 whitespace-nowrap">対局履歴</button>
+            <button type="button" onclick="switchTab('yakuman')" id="tab-btn-yakuman" class="tab-btn tab-inactive pb-2 whitespace-nowrap">役満記録</button>
+            <button type="button" onclick="switchTab('members')" id="tab-btn-members" class="tab-btn tab-inactive pb-2 whitespace-nowrap">メンバー管理 (100人)</button>
         </div>
 
         <!-- タブ1: 集計表 (日別) -->
@@ -195,7 +195,6 @@
         let matches = {};
         let yakumans = [];
 
-        // DBスキーマ自動判定用 ('unknown' | 'json_data' | 'flat_columns')
         let schemaMode = 'unknown';
         let currentRowId = null;
         let isSavingCloud = false;
@@ -227,7 +226,7 @@
                 if (raw) {
                     const parsed = JSON.parse(raw);
                     if (Array.isArray(parsed.members)) members = parsed.members;
-                    if (parsed.matches && typeof parsed.matches === 'object') matches = parsed.matches;
+                    if (parsed.matches && typeof parsed.matches === 'object' && !Array.isArray(parsed.matches)) matches = parsed.matches;
                     if (Array.isArray(parsed.yakumans)) yakumans = parsed.yakumans;
                 }
             } catch (e) {
@@ -240,7 +239,7 @@
         }
 
         function ensureDayData(date) {
-            if (!matches || typeof matches !== 'object') matches = {};
+            if (!matches || typeof matches !== 'object' || Array.isArray(matches)) matches = {};
             if (!matches[date] || typeof matches[date] !== 'object') {
                 matches[date] = { columns: [], games: [], finalized: false };
             }
@@ -1007,28 +1006,25 @@
             `).join('');
         }
 
-        // --- クラウド同期（スキーマ自動検出・空データ保護付き） ---
-
         function detectSchemaAndExtract(row) {
             if (!row || typeof row !== 'object') return null;
 
-            // パターン1: data 列 (JSONB) にまとめて入っている場合
             if ('data' in row) {
                 schemaMode = 'json_data';
                 const d = (row.data && typeof row.data === 'object') ? row.data : {};
+                const validMatches = (d.matches && typeof d.matches === 'object' && !Array.isArray(d.matches)) ? d.matches : {};
                 return {
                     members: Array.isArray(d.members) ? d.members : [],
-                    matches: (d.matches && typeof d.matches === 'object') ? d.matches : {},
+                    matches: validMatches,
                     yakumans: Array.isArray(d.yakumans) ? d.yakumans : []
                 };
             }
 
-            // パターン2: members / matches / yakumans が個別列の場合
             if ('members' in row || 'matches' in row) {
                 schemaMode = 'flat_columns';
                 return {
                     members: Array.isArray(row.members) ? row.members : [],
-                    matches: (row.matches && typeof row.matches === 'object') ? row.matches : {},
+                    matches: (row.matches && typeof row.matches === 'object' && !Array.isArray(row.matches)) ? row.matches : {},
                     yakumans: Array.isArray(row.yakumans) ? row.yakumans : []
                 };
             }
@@ -1045,7 +1041,6 @@
                 Object.keys(extracted.matches).length > 0 ||
                 extracted.yakumans.length > 0;
 
-            // クラウド側が空で、手元にデータがある場合は手元のデータを消さない
             if (!cloudHasData && hasAnyLocalData()) {
                 return;
             }
@@ -1073,7 +1068,6 @@
                     .select();
                 if (error) throw error;
                 if (!data || data.length === 0) {
-                    // 指定したidの行が消えていた場合は新規insertに切り替える
                     currentRowId = null;
                     return await writeRowToSupabase(mode, nowIso);
                 }
@@ -1112,7 +1106,6 @@
                     statusEl.className = "text-[11px] text-emerald-400";
                 }
             } catch (firstErr) {
-                // 列名不一致エラーの場合はもう一方の列形式へ自動フォールバックして再試行
                 try {
                     await writeRowToSupabase(fallbackMode, nowIso);
                     schemaMode = fallbackMode;
